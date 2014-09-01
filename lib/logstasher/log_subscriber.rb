@@ -18,6 +18,12 @@ module LogStasher
       event = LogStash::Event.new(data.merge({'@source' => LogStasher.source, '@tags' => tags}))
       LogStasher.logger << event.to_json + "\n"
     end
+    
+    def extract_custom_fields(payload)
+      custom_fields = (!LogStasher.custom_fields.empty? && payload.extract!(*LogStasher.custom_fields - [:action_black_list])) || {}
+      LogStasher.custom_fields.clear
+      custom_fields
+    end  
 
     def redirect_to(event)
       Thread.current[:logstasher_location] = event.payload[:location]
