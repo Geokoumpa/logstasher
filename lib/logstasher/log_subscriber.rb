@@ -46,13 +46,13 @@ module LogStasher
 
     def forbidden(payload)
 
-      payload[:white_list] ||= {method: [], controller: {}}  
-      payload[:black_list] ||= {method: [], controller: {}}
-      payload[:forbidden_params] ||= {}
+      white_list = payload[:white_list] || {method: [], controller: {}}  
+      black_list = payload[:black_list] || {method: [], controller: {}}
+      forbidden_params = payload[:forbidden_params] || {}
   
-      if payload[:black_list][:method].include?(payload[:method])
+      if black_list[:method].include?(payload[:method])
 
-        if (payload[:white_list][:controller][payload[:controller]] && payload[:white_list][:controller][payload[:controller]][:actions].include?(payload[:action])) or (payload[:white_list][:controller][payload[:controller]] == {actions: []}) or payload[:white_list][:method].include?(payload[:method])
+        if (white_list[:controller][payload[:controller]] && white_list[:controller][payload[:controller]][:actions].include?(payload[:action])) or (white_list[:controller][payload[:controller]] == {actions: []}) or white_list[:method].include?(payload[:method])
           reject = false
 
         else
@@ -63,22 +63,22 @@ module LogStasher
 
 
       unless reject
-        if payload[:black_list][:controller]
 
-          reject = payload[:black_list][:controller].keys.include?(payload[:controller]) and !payload[:white_list][:controller].keys.include?(payload[:controller])
-          if reject
-            black_actions = payload[:black_list][:controller][payload[:controller]][:actions] || []
-            payload[:white_list][:controller][payload[:controller]] ||= {}
-            white_actions = payload[:white_list][:controller][payload[:controller]][:actions] || []
-            reject = ((black_actions.include?(payload[:action]) and !white_actions.include?(payload[:action])) or (black_actions == [] and !white_actions.include?(payload[:action])))         
-          end
+
+        reject = black_list[:controller].keys.include?(payload[:controller]) and !white_list[:controller].keys.include?(payload[:controller])
+        if reject
+          black_actions = black_list[:controller][payload[:controller]][:actions] || []
+          white_list[:controller][payload[:controller]] ||= {}
+          white_actions = white_list[:controller][payload[:controller]][:actions] || []
+          reject = ((black_actions.include?(payload[:action]) and !white_actions.include?(payload[:action])) or (black_actions == [] and !white_actions.include?(payload[:action])))         
         end
+
         unless reject
           
-          payload[:forbidden_params].keys.each do |key|
-            forbidden_params = (search_hash(payload, key) == payload[:forbidden_params][key])
-            if forbidden_params
-              reject = forbidden_params
+          forbidden_params.keys.each do |key|
+            found = (search_hash(payload, key) == forbidden_params[key])
+            if found
+              reject = found
               return  reject
             end
           end
