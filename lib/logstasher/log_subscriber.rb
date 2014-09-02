@@ -100,6 +100,7 @@ module LogStasher
     end
 
 
+
     def redirect_to(event)
       Thread.current[:logstasher_location] = event.payload[:location]
     end
@@ -168,6 +169,42 @@ module LogStasher
       end
     end
 
+    def extract_custom_fields(payload)
+      custom_fields = (!LogStasher.custom_fields.empty? && payload.extract!(*LogStasher.custom_fields)) || {}
+      LogStasher.custom_fields.clear
+      custom_fields
+    end
+  end
 
+  class MailerLogSubscriber < ActiveSupport::LogSubscriber
+    MAILER_FIELDS = [:mailer, :action, :message_id, :from, :to]
+
+    def deliver(event)
+      process_event(event, ['mailer', 'deliver'])
+    end
+
+    def receive(event)
+      process_event(event, ['mailer', 'receive'])
+    end
+
+    def process(event)
+      process_event(event, ['mailer', 'process'])
+    end
+
+    def logger
+      LogStasher.logger
+    end
+
+    private
+
+    def process_event(event, tags)
+      data = LogStasher.request_context.merge(extract_metadata(event.payload))
+      event = LogStash::Event.new('@source' => LogStasher.source, '@fields' => data, '@tags' => tags)
+      logger << event.to_json + "\n"
+    end
+
+    def extract_metadata(payload)
+      payload.slice(*MAILER_FIELDS)
+    end
   end
 end
