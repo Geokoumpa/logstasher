@@ -5,15 +5,14 @@ require 'active_support/log_subscriber'
 module LogStasher
   class RequestLogSubscriber < ActiveSupport::LogSubscriber
     def process_action(event)
-      #unless event.payload[:action_black_list].include?('all') && event.payload[:action_white_list].blank?
+
 
       payload = event.payload
       custom_fields = extract_custom_fields(payload)
-      make_black_list(payload)
-      ##puts ' custom_fields are blank? ' + custom_fields.blank?.to_s + custom_fields.to_s
+      #make_black_list(payload)
+
       unless forbidden(payload) or custom_fields.blank?
-        #puts 'Logging ' + payload[:controller] + ' with action ' + payload[:action]
-        #puts 'LogStasher custom 2nd :' + LogStasher.custom_fields.to_s
+
         data      = extract_request(payload)
 
         data.merge! extract_status(payload)
@@ -21,99 +20,69 @@ module LogStasher
         data.merge! location(event)
         data.merge! extract_exception(payload)
         data.merge! custom_fields
-  
+        data.merge!({timestamp: (Time.now.utc.to_f.round(3) *1000).to_i})
         tags = ['request']
         tags.push('exception') if payload[:exception]
-        event = LogStash::Event.new(data.merge({'@source' => LogStasher.source, '@tags' => tags}))
-
+        event = data
+    
         LogStasher.logger << event.to_json + "\n"  
-      else
-        #puts 'rejected ' + payload[:controller] + ' with action ' + payload[:action]
+
       end
     end
     
     def extract_custom_fields(payload)
-      #puts 'LogStasher custom 1st :' + LogStasher.custom_fields.to_s
-      custom_fields = (!LogStasher.custom_fields.empty? && payload.extract!(*LogStasher.custom_fields - [:black_list] - [:white_list] - [:forbidden_params] - [:black_list_everything])) || {}
-      #puts 'Custom be4 clear ' + LogStasher.custom_fields.to_s
+      custom_fields = (!LogStasher.custom_fields.empty? && payload.extract!(*LogStasher.custom_fields - [:black_list_methods] - [:black_controllers] - [:forbidden_params] - [:white_controllers])) || {}
       LogStasher.custom_fields.clear
-      #puts 'Custom after clear ' + LogStasher.custom_fields.to_s
       custom_fields
     end 
 
-    def make_black_list(payload)
-      if payload[:black_list_everything]
-        payload[:black_list] = {method: [payload[:method]], controller: {payload[:controller] => {actions: [payload[:action]]}}}
-        # event.payload[:black_list][:method] = event.payload[:method]
-        # event.payload[:black_list][:controller] = event.payload[:controller]
-        # event.payload[:black_list][:action] = event.payload[:action]
-      end  
-    end 
+ 
 
     def forbidden(payload)
 
-      white_list = payload[:white_list] || {method: [], controller: {}}  
-      black_list = payload[:black_list] || {method: [], controller: {}}
-      ##puts 'white list is ' + white_list.to_s
-      ##puts 'black list is ' + black_list.to_s
-      forbidden_params = payload[:forbidden_params] || {}
-      if black_list[:method].include?(payload[:method])
+      b_c = payload[:black_controllers]
+      w_c = payload[:white_controllers]
+      con = payload[:controller]
+      act = payload[:action]
 
-        if (white_list[:controller][payload[:controller]] && white_list[:controller][payload[:controller]][:actions].include?(payload[:action])) or (white_list[:controller][payload[:controller]] == {actions: []}) or white_list[:method].include?(payload[:method])
-          reject = false
+      if payload[:black_list_methods].include?(payload[:method])
+        reject = true
 
-        else
-          #puts 'Rejecting because the method was ' + payload[:method].to_s  + 'and black listed methods are ' + black_list[:method].to_s + 'while white list is ' + white_list.to_s
-          reject = true
-        end
-      end
-
-      reject ||=false
-
-      ##puts 'reject is after method ' + reject.to_s
-      unless reject
-
-
-        reject = black_list[:controller].keys.include?(payload[:controller]) and !white_list[:controller].keys.include?(payload[:controller])
-        ##puts 'reject is after controller black check ' + reject.to_s
-        if reject
-          black_actions = black_list[:controller][payload[:controller]][:actions] || []
-          white_list[:controller][payload[:controller]] ||= {}
-          white_actions = white_list[:controller][payload[:controller]][:actions] || []
-          reject = ((black_actions.include?(payload[:action]) and !white_actions.include?(payload[:action])) or (black_actions == [] and !white_actions.include?(payload[:action])))         
-          #puts 'Rejecting is ' + reject.to_s + ' because controller is ' + payload[:controller].to_s + ' ,black listed actions are ' + black_list[:controller].to_s + ' and white listed  controller is ' + white_list[:controller].to_s
-        end
-
-        unless reject
-          #puts 'payload is ' + payload.to_s
-          payload.delete(:forbidden_params)
-          forbidden_params.keys.each do |key|
-            found = (search_hash(payload, key) == forbidden_params[key])
-            ##puts 'reject is after params ' + reject.to_s + ' setting is ' + forbidden_params.to_s + ' params is ' + payload.to_s
-            if found
-
-              reject = found
-              #puts 'Rejecting is ' + reject.to_s + ' because params are ' +  forbidden_params.to_s 
-              return  reject
-            end
+        if w_c.keys.include?(payload[:controller])
+          if w_c[con][:actions].include?(act) or w_c[con][:actions].empty?
+            reject = false
           end
-          
+        end
+      else
+        reject = false  
+
+        if b_c.keys.include?(payload[:controller])
+          if b_c[con][:actions].include?(act) or w_c[con][:actions].empty?
+            reject = true
+          end
         end
       end
-      #puts 'reject final is  ' + reject.to_s
+
+      unless reject
+        params = payload[:params]
+        forbidden = payload[:forbidden_params]
+        common_keys = params.keys & forbidden.keys
+        common_keys.each do |key|
+          if forbidden[key] == params[key]
+            reject = true
+            
+          end
+          break if reject
+        end
+
+
+      end
+
       return reject
+
     end
 
-    def search_hash(h, search)
-      return h[search] if h.fetch(search, false)
-    
-      h.keys.each do |k|
-        answer = search_hash(h[k], search) if h[k].is_a? Hash
-        return answer if answer
-      end
-    
-      false
-    end
+
 
 
 
@@ -185,11 +154,7 @@ module LogStasher
       end
     end
 
-    # def extract_custom_fields(payload)
-    #   custom_fields = (!LogStasher.custom_fields.empty? && payload.extract!(*LogStasher.custom_fields)) || {}
-    #   #LogStasher.custom_fields.clear
-    #   custom_fields
-    # end
+
   end
 
   class MailerLogSubscriber < ActiveSupport::LogSubscriber
