@@ -8,6 +8,7 @@ module LogStasher
 
 
       payload = event.payload
+
       custom_fields = extract_custom_fields(payload)
       #make_black_list(payload)
 
@@ -32,7 +33,6 @@ module LogStasher
     
     def extract_custom_fields(payload)
       custom_fields = (!LogStasher.custom_fields.empty? && payload.extract!(*LogStasher.custom_fields - [:black_list_methods] - [:black_controllers] - [:forbidden_params] - [:white_controllers])) || {}
-      #LogStasher.custom_fields.clear
       custom_fields
     end 
 
@@ -44,38 +44,41 @@ module LogStasher
       w_c = payload[:white_controllers]
       con = payload[:controller]
       act = payload[:action]
+      if payload[:black_list_methods]
+        if payload[:black_list_methods].include?(payload[:method])
+          reject = true
 
-      if payload[:black_list_methods].include?(payload[:method])
-        reject = true
-
-        if w_c.keys.include?(payload[:controller])
-          if w_c[con][:actions].include?(act) or w_c[con][:actions].empty?
-            reject = false
+          if w_c.keys.include?(payload[:controller])
+            if w_c[con][:actions].include?(act) or w_c[con][:actions].empty?
+              reject = false
+            end
           end
+        else
+          reject = false  
+
+          if b_c.keys.include?(payload[:controller])
+            if b_c[con][:actions].include?(act) or w_c[con][:actions].empty?
+              reject = true
+            end
+          end
+        end
+
+        unless reject
+          params = payload[:params]
+          forbidden = payload[:forbidden_params]
+          common_keys = params.keys & forbidden.keys
+          common_keys.each do |key|
+            if forbidden[key] == params[key]
+              reject = true
+              
+            end
+            break if reject
+          end
+
+
         end
       else
-        reject = false  
-
-        if b_c.keys.include?(payload[:controller])
-          if b_c[con][:actions].include?(act) or w_c[con][:actions].empty?
-            reject = true
-          end
-        end
-      end
-
-      unless reject
-        params = payload[:params]
-        forbidden = payload[:forbidden_params]
-        common_keys = params.keys & forbidden.keys
-        common_keys.each do |key|
-          if forbidden[key] == params[key]
-            reject = true
-            
-          end
-          break if reject
-        end
-
-
+        reject = true
       end
 
       return reject
