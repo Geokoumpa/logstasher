@@ -32,7 +32,7 @@ module LogStasher
     
     def extract_custom_fields(payload)
       custom_fields = (!LogStasher.custom_fields.empty? && payload.extract!(*LogStasher.custom_fields - [:black_list_methods] - [:black_controllers] - [:forbidden_params] - [:white_controllers])) || {}
-      LogStasher.custom_fields.clear
+      #LogStasher.custom_fields.clear
       custom_fields
     end 
 
